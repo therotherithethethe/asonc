@@ -166,12 +166,12 @@ int main(void)
     // Our kernel will be adding events on watchable file descriptos in this array.
     struct epoll_event events[EVENT_COUNT] = {0};
     
-    // We are going to add client file descriptors to proper release resources.
+    // We are going to add client file descriptors to properly release resources.
     Fds fds = fds_create();
 
     fprintf(stderr, "All initialization went good, so I'm accepting clients\n");
 
-    //Our accepted file descriptots will write messages in this array.
+    //Our accepted file descriptors will write messages in this array.
     char buf[CLIENT_BUFFSZ] = {0};
     bool is_interrupt = false;
     for (;;) {
