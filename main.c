@@ -45,8 +45,10 @@ Fds fds_create() {
 
 void fds_add(Fds *list, const int fd) {
     if(list->count >= list->capacity) {
-        const int new_capacity = list->capacity * 2;
-        int *new_ptr = (int *)malloc(new_capacity * sizeof(int));
+        list->capacity*=2;
+
+        // Maybe use realloc?
+        int *new_ptr = (int *)malloc(list->capacity * sizeof(int));
         if(new_ptr == NULL) {
             ERROR("malloc, fds adding new element. buy ram lol");
         } 
@@ -57,7 +59,6 @@ void fds_add(Fds *list, const int fd) {
 
         free(list->items);
 
-        list->capacity = new_capacity;
         list->items = new_ptr;
     }
     list->items[list->count++] = fd;
@@ -99,15 +100,6 @@ int main(void)
         ERROR("tcp_socket creating");
     }
 
-    // sockaddr_in is a subtype of supertype sockaddr.
-    // As we specified AF_INET IPv4 protocol in TCP socket, we have to use exactly this subtype.
-    // Also there is a couple of functions for converting ip and port into binary form (network byte order).
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port   = htons(PORT),
-        .sin_addr   = { .s_addr = inet_addr(IP) },
-    };
-
     // If for some reason program won't close TCP socket then we can't use address specified previously.
     // So we use this function to set SO_REUSEADDR for reusing previously not closed address.
     // 
@@ -124,6 +116,15 @@ int main(void)
     if(setsockopt(tcp_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval)) == -1) {
         ERROR("setting options for socket");
     }
+
+    // sockaddr_in is a subtype of supertype sockaddr.
+    // As we specified AF_INET IPv4 protocol in TCP socket, we have to use exactly this subtype.
+    // Also there is a couple of functions for converting ip and port into binary form (network byte order).
+    struct sockaddr_in addr = {
+        .sin_family = AF_INET,
+        .sin_port   = htons(PORT),
+        .sin_addr   = { .s_addr = inet_addr(IP) },
+    };
 
     // Binding current address to the socket.
     // Also generic function, so we need to cast subtype to his supertype.

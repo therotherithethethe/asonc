@@ -34,18 +34,18 @@ void liburing_helloworld() {
 
 //io_uring related macros
 #define GROUP_ID    7
-#define BUFS_NUM    2
-#define BUF_SZ      4
+#define BUFS_NUM    1024
+#define BUF_SZ      1024
 #define IOU_ENTRIES 8
 
-// Request that we will restore 
-typedef struct {
-    int32_t fd;
-    int8_t event_type;
-} EventRequest;
+// // Request that we will restore 
+// typedef struct {
+//     int32_t fd;
+//     int8_t event_type;
+// } EventRequest;
 
-#define READ 1
-#define ACCEPT 2
+// #define READ 1
+// #define ACCEPT 2
 
 void liburing_tcp() {
     struct io_uring ring;
@@ -85,13 +85,9 @@ void liburing_tcp() {
     
     struct sockaddr_in addr = {
         .sin_family = AF_INET,
-        .sin_port = htons(PORT),
+        .sin_port   = htons(PORT),
+        .sin_addr   = { .s_addr = inet_addr(IP) },
     };
-    if(inet_aton(IP, &addr.sin_addr) == 0)
-    {
-        fprintf(stderr, "ERROR: %s is incorrect address\n", IP);
-        exit(EXIT_FAILURE);
-    }
 
     if(bind(tcp_fd, (struct sockaddr*)&addr, sizeof(addr)) == -1)
     {
@@ -106,38 +102,50 @@ void liburing_tcp() {
     socklen_t client_addr_size = sizeof(client_addr);
     // char client_buf[1024] = {0};
 
-    EventRequest *tcpfd_accept_req = malloc(sizeof(EventRequest));
-    tcpfd_accept_req->fd = tcp_fd;
-    tcpfd_accept_req->event_type = ACCEPT;
+    // EventRequest *tcpfd_accept_req = malloc(sizeof(EventRequest));
+    // tcpfd_accept_req->fd = tcp_fd;
+    // tcpfd_accept_req->event_type = ACCEPT;
 
     sqe = io_uring_get_sqe(&ring);
     io_uring_prep_multishot_accept(sqe, tcp_fd, (struct sockaddr*)&client_addr, &client_addr_size, 0);
-    sqe->user_data = (uint64_t)tcpfd_accept_req;
+    sqe->user_data = (uint64_t)tcp_fd; //
+
+    sqe = io_uring_get_sqe(&ring);
+    io_uring_prep_read_multishot(sqe, STDIN_FILENO, 0, 0, GROUP_ID);
+    sqe->user_data = (uint64_t)STDIN_FILENO;
     io_uring_submit(&ring);
 
     for(;;) {
         io_uring_wait_cqe(&ring, &cqe);
-        EventRequest *current_req = (EventRequest *)cqe->user_data;
-
-        if(current_req->event_type == ACCEPT) {
+        // EventRequest *current_req = (EventRequest *)cqe->user_data;
+        int current_fd = cqe->user_data;
+        // if(current_req->event_type == ACCEPT) {
+        if(current_fd == tcp_fd) {
             int client_fd = cqe->res;
             if(client_fd == -1) {
                 ERROR("client_fd");
             }
             
-            EventRequest *client_read_req_for_newfd = malloc(sizeof(EventRequest));
-            client_read_req_for_newfd->event_type = READ;
-            client_read_req_for_newfd->fd = client_fd;
+            // EventRequest *client_read_req_for_newfd = malloc(sizeof(EventRequest));
+            // client_read_req_for_newfd->event_type = READ;
+            // client_read_req_for_newfd->fd = client_fd;
 
             sqe = io_uring_get_sqe(&ring);
             io_uring_prep_recv_multishot(sqe, client_fd, NULL, 0, 0);
             sqe->flags |= IOSQE_BUFFER_SELECT;
             sqe->buf_group = GROUP_ID;
-            sqe->user_data = (size_t)client_read_req_for_newfd;
+            // sqe->user_data = (uint64_t)client_read_req_for_newfd;
+            sqe->user_data = (uint64_t)client_fd;
 
             io_uring_submit(&ring);
-        } else if (current_req->event_type == READ) {
-            
+        // } else if (current_req->event_type == READ) {
+        } else if (current_fd == STDIN_FILENO) {
+            uint32_t bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
+            char *buf = bufs_ring + (size_t)bid * BUF_SZ;
+            int32_t len = cqe->res;
+            printf("%s\n", buf);
+
+        } else {
             uint32_t bid = cqe->flags >> IORING_CQE_BUFFER_SHIFT;
             char *buf = bufs_ring + (size_t)bid * BUF_SZ;
             int32_t len = cqe->res;
@@ -146,17 +154,19 @@ void liburing_tcp() {
                 fprintf(stderr, "%d.%s\n", -len, strerror(-len));
                 exit(EXIT_FAILURE);
             }
-            if (write(current_req->fd, buf, len) == -1) {
+            // if (write(current_req->fd, buf, len) == -1) {
+            if (write(current_fd, buf, len) == -1) {
                 fprintf(stderr, "%d\n", len);
                 ERROR("client write");
             }
             
             io_uring_buf_ring_add(br, buf, BUF_SZ, bid, iou_mask, 0);
             io_uring_buf_ring_advance(br, 1);
-        } else {
-            fprintf(stderr, "Unexpected event type. Aborting...\n");
-            exit(EXIT_FAILURE);
         }
+        // } else {
+        //     fprintf(stderr, "Unexpected event type. Aborting...\n");
+        //     exit(EXIT_FAILURE);
+        // }
 
     io_uring_cqe_seen(&ring, cqe);
 
